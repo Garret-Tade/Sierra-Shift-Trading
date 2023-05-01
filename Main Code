@@ -1,0 +1,87 @@
+from flask import Flask, render_template, request, redirect, url_for, flash
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime
+import sqlite3
+
+app = Flask(__name__)
+app.secret_key = 'secret_key'
+
+# Configure database
+conn = sqlite3.connect('database.db')
+conn.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL, associate_id TEXT NOT NULL, phone_number TEXT)')
+conn.execute('CREATE TABLE IF NOT EXISTS shifts (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, time_start TEXT NOT NULL, time_end TEXT NOT NULL, user_id INTEGER NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id))')
+
+# Configure login manager
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# User class for Flask-Login
+class User(UserMixin):
+    def __init__(self, id, name, email, password, associate_id, phone_number):
+        self.id = id
+        self.name = name
+        self.email = email
+        self.password = password
+        self.associate_id = associate_id
+        self.phone_number = phone_number
+
+    # Required method for Flask-Login
+    @staticmethod
+    def get(user_id):
+        user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+        if not user:
+            return None
+        return User(user[0], user[1], user[2], user[3], user[4], user[5])
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.get(user_id)
+
+# Index page
+@app.route('/')
+def index():
+    shifts = conn.execute('SELECT * FROM shifts').fetchall()
+    return render_template('index.html', shifts=shifts)
+
+# Register page
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        name = request.form['name']
+        email = request.form['email']
+        password = request.form['password']
+        associate_id = request.form['associate_id']
+        phone_number = request.form['phone_number']
+        
+        # Hash password before saving to database
+        password_hash = generate_password_hash(password)
+        
+        try:
+            conn.execute('INSERT INTO users (name, email, password, associate_id, phone_number) VALUES (?, ?, ?, ?, ?)',
+                         (name, email, password_hash, associate_id, phone_number))
+            conn.commit()
+            flash('Successfully registered!', 'success')
+            return redirect(url_for('login'))
+        except sqlite3.IntegrityError:
+            flash('Email already exists. Please try another email.', 'error')
+
+    return render_template('register.html')
+
+# Login page
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form['email']
+        password = request.form['password']
+        remember = True if request.form.get('remember') else False
+
+        user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+
+        if not user or not check_password_hash(user[3], password):
+            flash('Please check your login details and try again.', 'error')
+            return redirect(url_for('login'))
+
+        # Log user in and
+        
